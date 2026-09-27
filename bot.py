@@ -92,12 +92,17 @@ def legal_moves(state):
 
 
 def jev_move(client, state, seat):
+    """Play Jev's move and return (move, input_tokens, strength_seconds, api_seconds)."""
     moves = legal_moves(state)
-    question = Choice(instructions=instructions(hand_strength(state, seat)), criteria=dict.fromkeys(moves))
+    start = time.perf_counter()
+    strength = hand_strength(state, seat)
+    strength_done = time.perf_counter()
+    question = Choice(instructions=instructions(strength), criteria=dict.fromkeys(moves))
     response = client.system_one(state=describe(state, seat), questions={"move": question})
+    api_done = time.perf_counter()
     choice = response.choices["move"].choice
     moves[choice]()
-    return choice, response.usage.input_tokens
+    return choice, response.usage.input_tokens, strength_done - start, api_done - strength_done
 
 
 def short(cards):
@@ -109,6 +114,7 @@ def main():
     hands = []
     decisions = []
     total = 0
+    opponent_seconds = 0
     start = time.perf_counter()
     with TypeSafeClient() as client:
         for hand_number in range(1, HANDS + 1):
@@ -131,20 +137,24 @@ def main():
                     print(f"  {street} [{board}]:" if board else f"  {street}:")
                 actor = state.actor_index
                 if actor == seat:
-                    move, tokens = jev_move(client, state, seat)
-                    decisions.append((hand_number, street, move, tokens))
+                    move, *details = jev_move(client, state, seat)
+                    decisions.append((hand_number, street, move, *details))
                 else:
+                    opponent_start = time.perf_counter()
                     move = opponent.play(state)
+                    opponent_seconds += time.perf_counter() - opponent_start
                 line.append(f"{names[actor]}: {move}")
             print("    " + " | ".join(line))
             won = state.stacks[seat] - STARTING_STACK
             total += won
             hands.append((seat, street, won))
             print(f"  Jev {won:+} chips (total {total:+})")
-    minutes, seconds = divmod(round(time.perf_counter() - start), 60)
+    elapsed = time.perf_counter() - start
+    minutes, seconds = divmod(round(elapsed), 60)
 
+    timings = {"seconds": elapsed, "opponent_seconds": opponent_seconds}
     batch_id, stats = save_batch(
-        JEV_VERSION, JEV_VERSIONS[JEV_VERSION], opponent.NAME, hands, decisions
+        JEV_VERSION, JEV_VERSIONS[JEV_VERSION], opponent.NAME, hands, decisions, timings
     )
     print(f"\nBatch {batch_id} saved (Jev {JEV_VERSION} vs {opponent.NAME}):")
     for name, value in stats.items():

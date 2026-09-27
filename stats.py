@@ -39,7 +39,11 @@ CREATE TABLE IF NOT EXISTS batches (
     raise_pct REAL,
     allin_pct REAL,
     input_tokens INTEGER,
-    avg_input_tokens REAL
+    avg_input_tokens REAL,
+    seconds REAL,
+    jev_api_seconds REAL,
+    jev_strength_seconds REAL,
+    opponent_seconds REAL
 );
 CREATE TABLE IF NOT EXISTS jev_versions (
     version TEXT PRIMARY KEY,
@@ -57,7 +61,9 @@ CREATE TABLE IF NOT EXISTS decisions (
     hand_number INTEGER,
     street TEXT,
     move TEXT,
-    input_tokens INTEGER
+    input_tokens INTEGER,
+    strength_seconds REAL,
+    api_seconds REAL
 );
 """
 
@@ -66,7 +72,8 @@ def summarize(hands, decisions):
     """Turn the batch's hands and decisions into its statistics.
 
     hands: list of (seat, ended_street, net_chips).
-    decisions: list of (hand_number, street, move, input_tokens).
+    decisions: list of (hand_number, street, move, input_tokens,
+        strength_seconds, api_seconds).
 
     Win percentages are out of all hands, so the per-street ones add up to the
     overall one. A split pot is not a win. Move percentages are out of all of
@@ -74,8 +81,8 @@ def summarize(hands, decisions):
     """
     count = len(hands)
     wins = [street for _, street, net in hands if net > 0]
-    moves = [move.split()[0] for _, _, move, _ in decisions]
-    tokens = sum(t or 0 for *_, t in decisions)
+    moves = [decision[2].split()[0] for decision in decisions]
+    tokens = sum(decision[3] or 0 for decision in decisions)
     net_chips = sum(net for _, _, net in hands)
     stats = {
         "hands": count,
@@ -85,6 +92,8 @@ def summarize(hands, decisions):
         "decisions": len(moves),
         "input_tokens": tokens,
         "avg_input_tokens": tokens / (len(moves) or 1),
+        "jev_strength_seconds": sum(decision[4] for decision in decisions),
+        "jev_api_seconds": sum(decision[5] for decision in decisions),
     }
     for street, column in STREET_COLUMNS.items():
         stats[column] = 100 * wins.count(street) / count
@@ -109,8 +118,8 @@ def add_missing_columns(connection):
     fresh.close()
 
 
-def save_batch(jev_version, improvement, opponent, hands, decisions):
-    stats = summarize(hands, decisions)
+def save_batch(jev_version, improvement, opponent, hands, decisions, timings):
+    stats = summarize(hands, decisions) | timings
     connection = sqlite3.connect(DB_PATH)
     with connection:
         connection.executescript(SCHEMA)
@@ -130,7 +139,7 @@ def save_batch(jev_version, improvement, opponent, hands, decisions):
             [(batch_id, number, *hand) for number, hand in enumerate(hands, 1)],
         )
         connection.executemany(
-            "INSERT INTO decisions VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO decisions VALUES (?, ?, ?, ?, ?, ?, ?)",
             [(batch_id, *decision) for decision in decisions],
         )
     connection.close()
