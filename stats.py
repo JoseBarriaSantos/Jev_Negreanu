@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 
 DB_PATH = Path(__file__).with_name("poker_stats.db")
-STREETS = ("pre-flop", "flop", "turn", "river")
 STREET_COLUMNS = {
     "pre-flop": "won_preflop_pct",
     "flop": "won_flop_pct",
@@ -14,6 +13,7 @@ MOVE_COLUMNS = {
     "fold": "fold_pct",
     "check": "check_pct",
     "call": "call_pct",
+    "bet": "bet_pct",
     "raise": "raise_pct",
     "all-in": "allin_pct",
 }
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS batches (
     fold_pct REAL,
     check_pct REAL,
     call_pct REAL,
+    bet_pct REAL,
     raise_pct REAL,
     allin_pct REAL,
     input_tokens INTEGER,

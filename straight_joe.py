@@ -33,8 +33,9 @@ def play(state):
         amount = round(max(state.bets) + size)
         amount = max(amount, state.min_completion_betting_or_raising_to_amount)
         amount = min(amount, max_to)
+        verb = "raise" if max(state.bets) else "bet"
         state.complete_bet_or_raise_to(amount)
-        return f"all-in (to {amount})" if amount == max_to else f"raise to {amount}"
+        return f"all-in (to {amount})" if amount == max_to else f"{verb} to {amount}"
     if to_call == 0 or strength >= to_call / pot_after_call:
         state.check_or_call()
         return "check" if to_call == 0 else f"call {to_call}"

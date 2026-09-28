@@ -1,3 +1,5 @@
 pokerkit
 typesafe-sdk
 python-dotenv
+fastapi
+uvicorn

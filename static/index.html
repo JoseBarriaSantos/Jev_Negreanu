@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Poker</title>
+<style>
+  :root {
+    --bg: #0f1412;
+    --panel: #171e1b;
+    --line: #26302c;
+    --text: #e9efe9;
+    --muted: #93a39a;
+    --felt: #1d6b47;
+    --felt-dark: #134a31;
+    --rail: #3a2a1c;
+    --card: #fbfaf6;
+    --red: #c8323c;
+    --black: #1b1f23;
+    --gold: #e7b547;
+    --fold: #5b3538;
+    --passive: #2c3f52;
+    --aggressive: #2f6b4d;
+    --allin: #8a3b1e;
+    --chip-25: #2e8b57;
+    --chip-5: #c0392b;
+    --chip-1: #eeeeee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  h1 { font-size: 1.3rem; margin: 0; letter-spacing: 0.02em; }
+  .session { color: var(--muted); font-size: 0.9rem; }
+  .session b { color: var(--text); }
+
+  .table {
+    position: relative;
+    background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
+    border: 12px solid var(--rail);
+    border-radius: 160px;
+    padding: 20px 16px;
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45);
+  }
+  .seat { display: flex; align-items: center; gap: 14px; }
+  .who { text-align: center; min-width: 90px; }
+  .name { font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .chips { color: #d3e6da; font-size: 0.9rem; }
+  .dealer {
+    display: inline-grid; place-items: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; color: #111; font-size: 0.7rem; font-weight: 800;
+  }
+  .bet, .pot {
+    min-height: 34px; display: flex; align-items: center; gap: 8px;
+    color: var(--gold); font-weight: 700; font-size: 0.9rem;
+  }
+  .middle { display: grid; gap: 8px; justify-items: center; }
+  .cards { display: flex; gap: 6px; }
+
+  .stack { display: flex; gap: 3px; align-items: flex-end; min-width: 24px; min-height: 24px; }
+  .column { position: relative; width: 24px; }
+  .chip {
+    position: absolute; left: 0; width: 24px; height: 24px; border-radius: 50%;
+    border: 4px dashed rgba(255, 255, 255, 0.85);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(0, 0, 0, 0.15);
+  }
+  .chip.c25 { background: var(--chip-25); }
+  .chip.c5 { background: var(--chip-5); }
+  .chip.c1 { background: var(--chip-1); border-color: #4a6fa5; }
+  .flying { position: fixed; z-index: 10; pointer-events: none; transform: translate(-50%, -50%); }
+
+  .card {
+    width: 52px; height: 74px; border-radius: 7px;
+    background: var(--card); color: var(--black);
+    position: relative; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    font-weight: 700;
+  }
+  .card .rank { position: absolute; top: 4px; left: 6px; font-size: 1rem; line-height: 1; }
+  .card .suit { position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.8rem; padding-top: 10px; }
+  .card.red { color: var(--red); }
+  .card.back {
+    background: repeating-linear-gradient(45deg, #8b1e2d 0 6px, #a3293a 6px 12px);
+    border: 3px solid #fff;
+  }
+  .card.slot { background: rgba(255, 255, 255, 0.06); box-shadow: none; border: 1px dashed rgba(255, 255, 255, 0.2); }
+
+  .card.deal-you { animation: deal-you 0.35s ease-out both; }
+  .card.deal-jev { animation: deal-jev 0.35s ease-out both; }
+  .card.deal-board { animation: deal-board 0.35s ease-out both; }
+  .card.flip { animation: flip 0.4s ease-out both; }
+  @keyframes deal-you { from { opacity: 0; transform: translateY(-160px) rotate(-12deg) scale(0.7); } }
+  @keyframes deal-jev { from { opacity: 0; transform: translateY(160px) rotate(12deg) scale(0.7); } }
+  @keyframes deal-board { from { opacity: 0; transform: translateY(-50px) rotate(-6deg) scale(0.8); } }
+  @keyframes flip { from { transform: rotateY(90deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .card.deal-you, .card.deal-jev, .card.deal-board, .card.flip { animation: none; }
+  }
+
+  .status { text-align: center; min-height: 26px; margin: 14px 0 10px; font-weight: 600; }
+  .status.win { color: #7fe0a4; }
+  .status.loss { color: #f19a9a; }
+  .status.error { color: #f19a9a; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  button {
+    font: inherit; color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px; padding: 10px 14px; cursor: pointer;
+    display: grid; gap: 2px; justify-items: center; min-width: 84px;
+    background: var(--passive);
+  }
+  button small { color: rgba(255, 255, 255, 0.65); font-size: 0.72rem; }
+  button:hover:not(:disabled) { filter: brightness(1.2); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.fold { background: var(--fold); }
+  button.aggressive { background: var(--aggressive); }
+  button.allin { background: var(--allin); }
+  button.deal { background: var(--gold); color: #1a1406; font-weight: 700; padding: 12px 28px; }
+
+  .main-buttons { display: flex; gap: 8px; }
+  .main-buttons button { min-width: 96px; font-weight: 700; padding: 12px 14px; }
+  .sizer {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 8px 10px; display: grid; gap: 8px; min-width: min(300px, 100%); flex: 1; max-width: 420px;
+  }
+  .presets { display: flex; gap: 4px; }
+  .presets button {
+    flex: 1; min-width: 0; padding: 5px 4px; font-size: 0.78rem;
+    background: var(--allin); border-radius: 7px;
+  }
+  .slider-row { display: flex; align-items: center; gap: 6px; }
+  .slider-row input[type="range"] { flex: 1; accent-color: var(--gold); min-width: 0; }
+  .slider-row input[type="number"] {
+    width: 64px; padding: 6px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); font: inherit; text-align: center;
+  }
+  .slider-row .step { min-width: 30px; padding: 4px 0; border-radius: 7px; font-weight: 700; background: var(--allin); }
+
+  .log {
+    margin-top: 18px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px; font-size: 0.9rem;
+  }
+  .log h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; }
+  .log .street { color: var(--muted); }
+  .log div + div { margin-top: 4px; }
+  footer { color: var(--muted); font-size: 0.8rem; text-align: center; margin-top: 14px; }
+
+  @media (max-width: 520px) {
+    .table { border-radius: 60px; border-width: 8px; }
+    .card { width: 42px; height: 60px; }
+    .card .suit { font-size: 1.4rem; }
+    .seat { flex-direction: column; gap: 6px; }
+    button { min-width: 70px; padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Jev Poker</h1>
+    <div class="session">Hand <b id="hand-number">–</b> · Session <b id="total">0</b> chips</div>
+  </header>
+
+  <section class="table">
+    <div class="seat">
+      <div class="cards" id="jev-cards"></div>
+      <div class="who">
+        <div class="name">Jev <span class="dealer" id="jev-dealer" hidden>D</span></div>
+        <div class="chips" id="jev-chips">200 chips</div>
+      </div>
+      <div class="stack" id="jev-stack"></div>
+    </div>
+    <div class="bet" id="jev-bet"></div>
+
+    <div class="middle">
+      <div class="cards" id="board"></div>
+      <div class="pot" id="pot"></div>
+    </div>
+
+    <div class="bet" id="your-bet"></div>
+    <div class="seat">
+      <div class="cards" id="your-cards"></div>
+      <div class="who">
+        <div class="name">You <span class="dealer" id="your-dealer" hidden>D</span></div>
+        <div class="chips" id="your-chips">200 chips</div>
+      </div>
+      <div class="stack" id="your-stack"></div>
+    </div>
+  </section>
+
+  <div class="status" id="status"></div>
+  <div class="actions" id="actions"></div>
+
+  <section class="log">
+    <h2>This hand</h2>
+    <div id="log"><div class="street">No hand yet.</div></div>
+  </section>
+
+</main>
+
+<script>
+  const SUITS = { s: "♠", h: "♥", d: "♦", c: "♣" };
+  const STREETS = ["pre-flop", "flop", "turn", "river"];
+  const BOARD_SIZES = { "pre-flop": 0, flop: 3, turn: 4, river: 5 };
+  const CHIP_VALUES = [[25, "c25"], [5, "c5"], [1, "c1"]];
+  const STARTING_STACK = 200;
+  const BLINDS = [1, 2];
+  const DEAL_GAP = 130;
+  const DEAL_TIME = 350;
+  const CHIP_TIME = 450;
+  const MAX_PILE = 16;
+  const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, REDUCED_MOTION ? 0 : ms));
+  let busy = false;
+  let lastView = null;   // the last view fully drawn on screen
+  let shownBoard = 0;    // how many table cards are on screen
+  let queue = Promise.resolve();
+
+  async function api(path, body) {
+    const options = path === "/api/state"
+      ? {}
+      : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) };
+    const response = await fetch(path, options);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Something went wrong.");
+    return data;
+  }
+
+  // ---------- Drawing pieces ----------
+
+  function cardEl(code, animation, delay = 0) {
+    const el = document.createElement("div");
+    if (code === undefined) {
+      el.className = "card slot";
+      return el;
+    }
+    if (code === null) {
+      el.className = "card back";
+    } else {
+      const suit = code[1];
+      el.className = "card" + (suit === "h" || suit === "d" ? " red" : "");
+      el.innerHTML = `<span class="rank">${code[0] === "T" ? "10" : code[0]}</span><span class="suit">${SUITS[suit]}</span>`;
+    }
+    if (animation) {
+      el.classList.add(animation);
+      el.style.animationDelay = `${delay}ms`;
+    }
+    return el;
+  }
+
+  // How many chips of each color make up `amount`. Bets and the pot use as few chips
+  // as possible. A player's stack is mixed like a real one: some white and red chips
+  // for change and the rest in green, so 200 becomes 6 green, 9 red and 5 white.
+  function chipCounts(amount, mixed) {
+    if (!mixed) {
+      let left = amount;
+      return CHIP_VALUES.map(([value]) => {
+        const count = Math.floor(left / value);
+        left -= count * value;
+        return count;
+      });
+    }
+    const whites = amount >= 10 ? (amount % 5) + 5 : amount;
+    let rest = amount - whites;
+    const reds = rest >= 50 ? (rest % 25) / 5 + 5 : rest / 5;
+    rest -= reds * 5;
+    return [rest / 25, reds, whites];
+  }
+
+  // Draws a pile of chips worth `amount`: one column per chip color, at most MAX_PILE chips tall.
+  function chipStack(amount, mixed = false) {
+    const stack = document.createElement("div");
+    stack.className = "stack";
+    const counts = chipCounts(amount, mixed);
+    for (const [i, [, color]] of CHIP_VALUES.entries()) {
+      const shown = Math.min(counts[i], MAX_PILE);
+      if (!shown) continue;
+      const column = document.createElement("div");
+      column.className = "column";
+      column.style.height = `${24 + 4 * (shown - 1)}px`;
+      for (let n = 0; n < shown; n++) {
+        const chip = document.createElement("div");
+        chip.className = `chip ${color}`;
+        chip.style.bottom = `${n * 4}px`;
+        column.append(chip);
+      }
+      stack.append(column);
+    }
+    return stack;
+  }
+
+  function textEl(text) {
+    const span = document.createElement("span");
+    span.textContent = text;
+    return span;
+  }
+
+  // Draws chip counts, bets and pot. `t` holds your_chips, jev_chips, your_bet, jev_bet
+  // and pot (only the chips already collected in the middle, not the current bets).
+  function drawChips(t) {
+    for (const p of ["your", "jev"]) {
+      $(`${p}-chips`).textContent = `${t[`${p}_chips`]} chips`;
+      $(`${p}-stack`).replaceChildren(...chipStack(t[`${p}_chips`], true).children);
+      const bet = t[`${p}_bet`];
+      $(`${p}-bet`).replaceChildren(...(bet ? [chipStack(bet), textEl(`${bet}`)] : []));
+    }
+    const total = t.pot + t.your_bet + t.jev_bet;
+    $("pot").replaceChildren(...(total ? [...(t.pot ? [chipStack(t.pot)] : []), textEl(`Pot ${total}`)] : []));
+  }
+
+  function drawBoard(cards, animateFrom = cards.length) {
+    const els = cards.map((code, i) =>
+      i < animateFrom ? cardEl(code) : cardEl(code, "deal-board", (i - animateFrom) * (DEAL_GAP + 70)));
+    while (els.length < 5) els.push(cardEl(undefined));
+    $("board").replaceChildren(...els);
+    shownBoard = cards.length;
+  }
+
+  function drawLog(actions) {
+    const log = $("log");
+    if (!actions.length) {
+      log.innerHTML = '<div class="street">No moves yet.</div>';
+      return;
+    }
+    log.replaceChildren(...STREETS
+      .map((street) => {
+        const moves = actions.filter((a) => a.street === street);
+        if (!moves.length) return null;
+        const row = document.createElement("div");
+        row.innerHTML = `<span class="street">${street}:</span> ` +
+          moves.map((a) => `<b>${a.player}</b> ${a.move}`).join(" | ");
+        return row;
+      })
+      .filter(Boolean));
+  }
+
+  function drawStatus(view) {
+    const status = $("status");
+    status.className = "status";
+    if (!view.hand_number) {
+      status.textContent = "Deal a hand to play against Jev.";
+    } else if (view.over) {
+      const last = view.actions[view.actions.length - 1];
+      const folded = last.move === "fold" ? `${last.player === "You" ? "You" : "Jev"} folded. ` : "";
+      if (view.result > 0) {
+        status.textContent = `${folded}You won ${view.result} chips.`;
+        status.classList.add("win");
+      } else if (view.result < 0) {
+        status.textContent = `${folded}You lost ${-view.result} chips.`;
+        status.classList.add("loss");
+      } else {
+        status.textContent = "Split pot.";
+      }
+    } else {
+      status.textContent = "Your turn.";
+    }
+  }
+
+  function drawActions(view) {
+    const actions = $("actions");
+    if (!view.hand_number || view.over) {
+      const deal = document.createElement("button");
+      deal.className = "deal";
+      deal.textContent = view.hand_number ? "Deal next hand" : "Deal";
+      deal.onclick = () => send("/api/new-hand", undefined, "Dealing…");
+      actions.replaceChildren(deal);
+      return;
+    }
+    const c = view.controls;
+    const main = document.createElement("div");
+    main.className = "main-buttons";
+    if (c.can_fold) main.append(buttonEl("Fold", "fold", () => sendMove({ move: "fold" }, "fold")));
+    const passive = c.call ? `call ${c.call}` : "check";
+    main.append(buttonEl(c.call ? `Call ${c.call}` : "Check", "passive", () => sendMove({ move: passive }, passive)));
+    if (!c.bet) {
+      actions.replaceChildren(main);
+      return;
+    }
+    let amount;
+    const confirm = buttonEl("", "aggressive", () => sendMove({ amount }, betName(c.bet, amount)));
+    main.append(confirm);
+    actions.replaceChildren(main, drawSizer(c.bet, (value) => {
+      amount = value;
+      const allIn = value === c.bet.max;
+      confirm.className = allIn ? "allin" : "aggressive";
+      confirm.innerHTML = allIn ? `All-in<br>${value}` : `${c.bet.verb === "bet" ? "Bet" : "Raise To"}<br>${value}`;
+    }, () => confirm.click()));
+  }
+
+  function buttonEl(text, kind, onclick) {
+    const button = document.createElement("button");
+    button.className = kind;
+    button.innerHTML = text;
+    button.onclick = onclick;
+    return button;
+  }
+
+  // Same names the server gives a bet from the slider: "bet to 18", "raise to 40" or "all-in (to 200)".
+  function betName(bet, amount) {
+    return amount === bet.max ? `all-in (to ${amount})` : `${bet.verb} to ${amount}`;
+  }
+
+  // The bet-size panel: preset buttons snap the slider to Min, a share of the pot or Max,
+  // -/+ move it by one big blind, and the number box can be typed into (Enter confirms).
+  // onChange(amount) runs whenever the amount changes.
+  function drawSizer(bet, onChange, onEnter) {
+    const sizer = document.createElement("div");
+    sizer.className = "sizer";
+    const slider = Object.assign(document.createElement("input"), { type: "range", min: bet.min, max: bet.max, step: 1 });
+    const box = Object.assign(document.createElement("input"), { type: "number", min: bet.min, max: bet.max });
+    let amount = bet.min;
+    const set = (value) => {
+      amount = Math.min(bet.max, Math.max(bet.min, Math.round(Number(value) || bet.min)));
+      slider.value = box.value = amount;
+      onChange(amount);
+    };
+    slider.oninput = () => set(slider.value);
+    box.onchange = () => set(box.value);
+    box.onkeydown = (event) => {
+      if (event.key === "Enter") {
+        set(box.value);
+        onEnter();
+      }
+    };
+
+    const presets = document.createElement("div");
+    presets.className = "presets";
+    const snaps = [["Min", bet.min], ...Object.entries(bet.presets), ["Max", bet.max]];
+    for (const [label, value] of snaps) {
+      const button = buttonEl(label, "", () => set(value));
+      button.disabled = value < bet.min || value > bet.max;
+      presets.append(button);
+    }
+
+    const row = document.createElement("div");
+    row.className = "slider-row";
+    const minus = buttonEl("−", "step", () => set(amount - bet.step));
+    const plus = buttonEl("+", "step", () => set(amount + bet.step));
+    row.append(box, minus, slider, plus);
+    sizer.append(presets, row);
+    set(bet.min);
+    return sizer;
+  }
+
+  // Draws the whole table exactly as the server describes it, with no animation.
+  function drawAll(view) {
+    const inHand = view.hand_number > 0;
+    $("hand-number").textContent = view.hand_number || "–";
+    $("total").textContent = (view.total > 0 ? "+" : "") + view.total;
+    $("your-cards").replaceChildren(...(inHand ? view.your_cards.map((c) => cardEl(c)) : []));
+    $("jev-cards").replaceChildren(...(inHand ? (view.jev_cards || [null, null]).map((c) => cardEl(c)) : []));
+    drawBoard(inHand ? view.board : []);
+    $("jev-dealer").hidden = !inHand || view.you_are_dealer;
+    $("your-dealer").hidden = !inHand || !view.you_are_dealer;
+    drawChips(inHand ? chipsOf(view) : freshChips());
+    drawLog(inHand ? view.actions : []);
+    drawStatus(view);
+    drawActions(view);
+  }
+
+  function freshChips() {
+    return { your_chips: STARTING_STACK, jev_chips: STARTING_STACK, your_bet: 0, jev_bet: 0, pot: 0 };
+  }
+
+  function chipsOf(view) {
+    return {
+      your_chips: view.your_chips, jev_chips: view.jev_chips,
+      your_bet: view.your_bet, jev_bet: view.jev_bet,
+      pot: view.pot - view.your_bet - view.jev_bet,
+    };
+  }
+
+  // ---------- Animations ----------
+
+  // Slides a pile of `amount` chips from one spot on the page to another.
+  function fly(fromEl, toEl, amount) {
+    if (!amount || REDUCED_MOTION) return Promise.resolve();
+    const from = fromEl.getBoundingClientRect();
+    const to = toEl.getBoundingClientRect();
+    const startX = from.left + from.width / 2, startY = from.top + from.height / 2;
+    const dx = to.left + to.width / 2 - startX, dy = to.top + to.height / 2 - startY;
+    const ghost = chipStack(amount);
+    ghost.classList.add("flying");
+    ghost.style.left = `${startX}px`;
+    ghost.style.top = `${startY}px`;
+    document.body.append(ghost);
+    const animation = ghost.animate(
+      [
+        { transform: "translate(-50%, -50%)" },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))` },
+      ],
+      { duration: CHIP_TIME, easing: "ease-in-out" },
+    );
+    return animation.finished.then(() => ghost.remove());
+  }
+
+  async function putIn(t, player, amount) {
+    if (!amount) return;
+    t[`${player}_chips`] -= amount;
+    const flight = fly($(`${player}-stack`), $(`${player}-bet`), amount);
+    drawChips(t);
+    await flight;
+    t[`${player}_bet`] += amount;
+    drawChips(t);
+  }
+
+  async function collectBets(t) {
+    if (!t.your_bet && !t.jev_bet) return;
+    const flights = [fly($("your-bet"), $("pot"), t.your_bet), fly($("jev-bet"), $("pot"), t.jev_bet)];
+    const collected = t.your_bet + t.jev_bet;
+    t.your_bet = t.jev_bet = 0;
+    drawChips(t);
+    await Promise.all(flights);
+    t.pot += collected;
+    drawChips(t);
+  }
+
+  async function payOut(t, result) {
+    if (!t.pot) return;
+    const winners = result > 0 ? ["your"] : result < 0 ? ["jev"] : ["your", "jev"];
+    const share = t.pot / winners.length;
+    const flights = winners.map((p) => fly($("pot"), $(`${p}-stack`), share));
+    t.pot = 0;
+    drawChips(t);
+    await Promise.all(flights);
+  }
+
+  async function dealBoard(view, count) {
+    if (count <= shownBoard) return;
+    const newCards = count - shownBoard;
+    drawBoard(view.board.slice(0, count), shownBoard);
+    await sleep(newCards * (DEAL_GAP + 70) + DEAL_TIME);
+  }
+
+  async function dealHoleCards(view) {
+    const yours = view.your_cards.map((c, i) => cardEl(c, "deal-you", i * 2 * DEAL_GAP));
+    const jevs = [null, null].map((c, i) => cardEl(c, "deal-jev", (i * 2 + 1) * DEAL_GAP));
+    $("your-cards").replaceChildren(...yours);
+    $("jev-cards").replaceChildren(...jevs);
+    await sleep(4 * DEAL_GAP + DEAL_TIME);
+  }
+
+  async function revealJev(view) {
+    $("jev-cards").replaceChildren(...view.jev_cards.map((c) => cardEl(c, "flip")));
+    await sleep(500);
+  }
+
+  // Replays everything that changed since the last drawn view, one step at a time:
+  // cards dealt, blinds posted, each move's chips, bets swept into the pot at the
+  // end of a street, the next table cards, Jev's cards at showdown, the pot to the winner.
+  async function playOut(view) {
+    if (!view.hand_number) {
+      drawAll(view);
+      lastView = view;
+      return;
+    }
+    const newHand = !lastView || lastView.hand_number !== view.hand_number;
+    const t = newHand ? freshChips() : chipsOf(lastView);
+    let street = newHand ? "pre-flop" : streetOf(lastView);
+    const seen = newHand ? 0 : lastView.actions.length;
+
+    if (newHand) {
+      $("hand-number").textContent = view.hand_number;
+      $("jev-dealer").hidden = view.you_are_dealer;
+      $("your-dealer").hidden = !view.you_are_dealer;
+      drawBoard([]);
+      drawLog([]);
+      drawChips(t);
+      await dealHoleCards(view);
+      const [small, big] = view.you_are_dealer ? ["your", "jev"] : ["jev", "your"];
+      await Promise.all([putIn(t, small, BLINDS[0]), putIn(t, big, BLINDS[1])]);
+    }
+
+    for (let i = seen; i < view.actions.length; i++) {
+      const action = view.actions[i];
+      if (action.street !== street) {
+        await collectBets(t);
+        await dealBoard(view, BOARD_SIZES[action.street]);
+        street = action.street;
+      }
+      drawLog(view.actions.slice(0, i + 1));
+      await putIn(t, action.player === "You" ? "your" : "jev", action.chips);
+    }
+
+    if (view.over || view.board.length > shownBoard) {
+      await collectBets(t);
+      await dealBoard(view, view.board.length);
+    }
+    if (view.over) {
+      if (view.jev_cards) await revealJev(view);
+      await payOut(t, view.result);
+    }
+
+    drawAll(view);
+    lastView = view;
+  }
+
+  function streetOf(view) {
+    return STREETS.find((street) => BOARD_SIZES[street] === view.board.length);
+  }
+
+  // Same rule as the server: "call 4" adds 4, "raise to 8" adds 8 minus what's already bet.
+  function chipsPutIn(move, betBefore) {
+    let m;
+    if ((m = move.match(/to (\d+)/))) return Number(m[1]) - betBefore;
+    if ((m = move.match(/^call (\d+)/))) return Number(m[1]);
+    return 0;
+  }
+
+  // Plays your own move on screen straight away, while the server is still waiting on Jev.
+  // lastView is updated as if the server had already confirmed it, so the reply only
+  // replays what happened after your move.
+  async function playMine(move) {
+    const before = lastView;
+    const chips = chipsPutIn(move, before.your_bet);
+    lastView = {
+      ...before,
+      your_chips: before.your_chips - chips,
+      your_bet: before.your_bet + chips,
+      pot: before.pot + chips,
+      actions: [...before.actions, { player: "You", street: streetOf(before), move, chips }],
+    };
+    drawLog(lastView.actions);
+    await putIn(chipsOf(before), "your", chips);
+  }
+
+  function enqueue(step) {
+    queue = queue.catch(() => {}).then(step);
+    return queue;
+  }
+
+  function sendMove(body, name) {
+    return send("/api/move", body, "Jev is thinking…", name);
+  }
+
+  // `myMove` is the name of your own move, played on screen before the server answers.
+  async function send(path, body, waitingText, myMove) {
+    if (busy) return;
+    busy = true;
+    document.querySelectorAll("#actions button, #actions input").forEach((el) => (el.disabled = true));
+    $("status").className = "status";
+    $("status").textContent = waitingText;
+    const before = lastView;
+    if (myMove) enqueue(() => playMine(myMove));
+    try {
+      const view = await api(path, body);
+      await enqueue(() => playOut(view));
+    } catch (error) {
+      await queue.catch(() => {});
+      lastView = before;
+      if (before) drawAll(before);
+      $("status").className = "status error";
+      $("status").textContent = error.message;
+    } finally {
+      busy = false;
+    }
+  }
+
+  drawAll({ hand_number: 0, total: 0 });
+  api("/api/state").then((view) => enqueue(() => playOut(view))).catch((error) => {
+    $("status").className = "status error";
+    $("status").textContent = error.message;
+  });
+</script>
+</body>
+</html>
