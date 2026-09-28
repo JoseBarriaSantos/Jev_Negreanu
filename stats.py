@@ -1,8 +1,11 @@
+import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).with_name("poker_stats.db")
+# Online, DB_PATH points at Render's disk so the database survives updates.
+DB_PATH = Path(os.environ.get("DB_PATH") or Path(__file__).with_name("poker_stats.db"))
 STREET_COLUMNS = {
     "pre-flop": "won_preflop_pct",
     "flop": "won_flop_pct",
@@ -119,29 +122,44 @@ def add_missing_columns(connection):
     fresh.close()
 
 
-def save_batch(jev_version, improvement, opponent, hands, decisions, timings):
-    stats = summarize(hands, decisions) | timings
+def connect():
     connection = sqlite3.connect(DB_PATH)
     with connection:
         connection.executescript(SCHEMA)
         add_missing_columns(connection)
-        connection.execute(
-            "INSERT OR REPLACE INTO jev_versions VALUES (?, ?)", (jev_version, improvement)
-        )
-        columns = ", ".join(stats)
-        placeholders = ", ".join("?" * len(stats))
-        batch_id = connection.execute(
-            f"INSERT INTO batches (played_at, jev_version, opponent, {columns}) "
-            f"VALUES (?, ?, ?, {placeholders})",
-            (datetime.now().isoformat(timespec="seconds"), jev_version, opponent, *stats.values()),
-        ).lastrowid
-        connection.executemany(
-            "INSERT INTO hands VALUES (?, ?, ?, ?, ?)",
-            [(batch_id, number, *hand) for number, hand in enumerate(hands, 1)],
-        )
-        connection.executemany(
-            "INSERT INTO decisions VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [(batch_id, *decision) for decision in decisions],
-        )
-    connection.close()
+    return connection
+
+
+def start_batch(connection, jev_version, improvement, opponent, played_at=None):
+    """Create an empty batch row; its stats are filled in by update_summary."""
+    connection.execute("INSERT OR REPLACE INTO jev_versions VALUES (?, ?)", (jev_version, improvement))
+    return connection.execute(
+        "INSERT INTO batches (played_at, jev_version, opponent) VALUES (?, ?, ?)",
+        ((played_at or datetime.now()).isoformat(timespec="seconds"), jev_version, opponent),
+    ).lastrowid
+
+
+def add_hand(connection, batch_id, hand_number, hand, decisions):
+    """Save one hand, (seat, ended_street, net_chips), and Jev's decisions in it."""
+    connection.execute("INSERT INTO hands VALUES (?, ?, ?, ?, ?)", (batch_id, hand_number, *hand))
+    connection.executemany(
+        "INSERT INTO decisions VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(batch_id, *decision) for decision in decisions],
+    )
+
+
+def update_summary(connection, batch_id, hands, decisions, timings):
+    stats = summarize(hands, decisions) | timings
+    assignments = ", ".join(f"{column} = ?" for column in stats)
+    connection.execute(f"UPDATE batches SET {assignments} WHERE id = ?", (*stats.values(), batch_id))
+    return stats
+
+
+def save_batch(jev_version, improvement, opponent, hands, decisions, timings):
+    """Save a whole batch at once (the bot-vs-bot runs in bot.py)."""
+    with closing(connect()) as connection, connection:
+        batch_id = start_batch(connection, jev_version, improvement, opponent)
+        for number, hand in enumerate(hands, 1):
+            add_hand(connection, batch_id, number, hand, [d for d in decisions if d[0] == number])
+        stats = update_summary(connection, batch_id, hands, decisions, timings)
     return batch_id, stats

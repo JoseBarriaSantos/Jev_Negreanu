@@ -1,5 +1,8 @@
+import logging
+import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -8,11 +11,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typesafe_sdk import TypeSafeClient
 
+import jev
+import stats
 from game import BLINDS, bet_or_raise, pot_size_to
 from hand import Hand
 
 PAGE = Path(__file__).with_name("static") / "index.html"
 SLIDER_PRESETS = {"1/3 Pot": 1 / 3, "1/2 Pot": 1 / 2, "3/4 Pot": 3 / 4, "Pot": 1}
+OPPONENT = "Human"
 
 load_dotenv()
 client = TypeSafeClient()
@@ -24,14 +30,23 @@ async def lifespan(app):
         yield
 
 
-app = FastAPI(title="Jev Poker", lifespan=lifespan)
+app = FastAPI(title="Jev Negreanu", lifespan=lifespan)
 
 
 class Session:
+    """One visitor's game. Their visit is saved as a batch with "Human" as the opponent."""
+
     def __init__(self):
         self.hand = None
         self.hands_played = 0
         self.total = 0  # the visitor's chips won or lost over all hands
+        self.started_at = datetime.now()
+        self.start_clock = time.perf_counter()
+        self.batch_id = None  # created when the first hand finishes
+        self.hands = []  # (jev_seat, ended_street, jev_net_chips) for the batch stats
+        self.decisions = []  # Jev's (hand_number, street, move, tokens, strength_s, api_s)
+        self.thinking_seconds = 0  # time the visitor spent deciding their moves
+        self.turn_started = None
 
 
 class Move(BaseModel):
@@ -59,6 +74,36 @@ def let_jev_play(session):
         hand.play_jev()
     if hand.over:
         session.total -= hand.jev_won
+        save_hand(session)
+    else:
+        session.turn_started = time.perf_counter()
+
+
+def save_hand(session):
+    """Add the finished hand to the visit's batch and refresh its summary.
+
+    Stats are from Jev's side, like the batches against bots. A database error is
+    logged instead of raised, so it never interrupts the game.
+    """
+    hand, number = session.hand, session.hands_played
+    row = (hand.jev_seat, hand.ended_street, hand.jev_won)
+    decisions = [(number, *decision) for decision in hand.decisions]
+    session.hands.append(row)
+    session.decisions.extend(decisions)
+    timings = {
+        "seconds": time.perf_counter() - session.start_clock,
+        "opponent_seconds": session.thinking_seconds,
+    }
+    try:
+        with closing(stats.connect()) as connection, connection:
+            if session.batch_id is None:
+                session.batch_id = stats.start_batch(
+                    connection, jev.VERSION, jev.VERSIONS[jev.VERSION], OPPONENT, session.started_at
+                )
+            stats.add_hand(connection, session.batch_id, number, row, decisions)
+            stats.update_summary(connection, session.batch_id, session.hands, session.decisions, timings)
+    except Exception:
+        logging.exception("Couldn't save the hand's stats")
 
 
 def cards(cards):
@@ -151,5 +196,6 @@ def move(body: Move, request: Request, response: Response):
         hand.play_move(body.move)
     else:
         raise HTTPException(400, f"That move isn't allowed right now. Options: {hand.move_names()}")
+    session.thinking_seconds += time.perf_counter() - session.turn_started
     let_jev_play(session)
     return view(session)
