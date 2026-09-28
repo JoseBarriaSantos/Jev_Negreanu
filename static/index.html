@@ -28,6 +28,7 @@
     --chip-1: #eeeeee;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     min-height: 100vh;
@@ -36,8 +37,30 @@
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   main { max-width: 760px; margin: 0 auto; padding: 16px; }
-  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
-  h1 { font-size: 1.3rem; margin: 0; letter-spacing: 0.02em; }
+  /* Raised above the table so the title's tooltip is never covered by Jev's photo. */
+  header {
+    display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;
+    position: relative; z-index: 30;
+  }
+  h1 { font-size: 1.3rem; margin: 0; letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; }
+  /* The "i" next to the title; its tooltip shows on hover, or on tap (focus) on phones. */
+  button.info {
+    position: relative; display: inline-grid; place-items: center;
+    width: 20px; height: 20px; min-width: 0; padding: 0; border-radius: 50%;
+    font-size: 0.75rem; font-weight: 700; font-family: Georgia, serif; font-style: italic;
+    background: var(--passive); cursor: help;
+  }
+  .info .tip {
+    position: absolute; left: calc(100% + 10px); top: -4px;
+    width: 250px; padding: 8px 10px; z-index: 20;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    color: var(--text); font: 400 0.82rem/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: 0; text-align: left;
+    opacity: 0; visibility: hidden; transition: opacity 0.15s; pointer-events: none;
+  }
+  .info:hover .tip, .info:focus .tip { opacity: 1; visibility: visible; }
+  button.info:hover:not(:disabled) { filter: none; background: #3a5470; }
   .session { color: var(--muted); font-size: 0.9rem; }
   .session b { color: var(--text); }
 
@@ -46,11 +69,18 @@
     background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
     border: 12px solid var(--rail);
     border-radius: 160px;
-    padding: 20px 16px;
+    margin-top: 64px;
+    padding: 56px 16px 20px;
     display: grid;
     gap: 12px;
     justify-items: center;
     box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45);
+  }
+  /* Jev's head peeks over the far edge of the table, across from you. */
+  .jev-face {
+    position: absolute; top: -84px; left: 50%; transform: translateX(-50%);
+    height: 128px; pointer-events: none;
+    filter: drop-shadow(0 8px 10px rgba(0, 0, 0, 0.6));
   }
   .seat { display: flex; align-items: center; gap: 14px; }
   .who { text-align: center; min-width: 90px; }
@@ -157,7 +187,9 @@
   footer { color: var(--muted); font-size: 0.8rem; text-align: center; margin-top: 14px; }
 
   @media (max-width: 520px) {
-    .table { border-radius: 60px; border-width: 8px; }
+    .table { border-radius: 60px; border-width: 8px; margin-top: 48px; padding-top: 44px; }
+    .jev-face { top: -64px; height: 96px; }
+    .info .tip { left: -140px; top: calc(100% + 8px); transform: none; width: 230px; }
     .card { width: 42px; height: 60px; }
     .card .suit { font-size: 1.4rem; }
     .seat { flex-direction: column; gap: 6px; }
@@ -168,11 +200,16 @@
 <body>
 <main>
   <header>
-    <h1>Jev Negreanu</h1>
+    <h1>Jev Negreanu
+      <button class="info" type="button" aria-label="About Jev Negreanu" aria-describedby="about-jev">i
+        <span class="tip" role="tooltip" id="about-jev">Jev Negreanu is an AI-bot I built that is powered by Jev AI from TypeSafe. Can you beat it?</span>
+      </button>
+    </h1>
     <div class="session">Hand <b id="hand-number">–</b> · Session <b id="total">0</b> chips</div>
   </header>
 
   <section class="table">
+    <img class="jev-face" src="/assets/negreanu_posessed.png" alt="Jev Negreanu">
     <div class="seat">
       <div class="cards" id="jev-cards"></div>
       <div class="who">
@@ -233,9 +270,19 @@
     const options = path === "/api/state"
       ? {}
       : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) };
-    const response = await fetch(path, options);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || "Something went wrong.");
+    let response, data;
+    try {
+      response = await fetch(path, options);
+      data = await response.json();
+    } catch {
+      // No answer, or a web page instead of game data: the server is down or restarting.
+      throw new Error("Can't reach the server right now. It may be restarting, so try again in a moment.");
+    }
+    if (!response.ok) {
+      const error = new Error(data.detail || "Something went wrong.");
+      error.status = response.status;
+      throw error;
+    }
     return data;
   }
 
@@ -662,6 +709,14 @@
       await queue.catch(() => {});
       lastView = before;
       if (before) drawAll(before);
+      // 409 means the server's game doesn't match the screen (e.g. it restarted and
+      // lost the hand), so redraw the table as the server has it.
+      if (error.status === 409) {
+        try {
+          lastView = await api("/api/state");
+          drawAll(lastView);
+        } catch {}
+      }
       $("status").className = "status error";
       $("status").textContent = error.message;
     } finally {

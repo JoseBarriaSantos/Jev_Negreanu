@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typesafe_sdk import TypeSafeClient
 
@@ -31,6 +32,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Jev Negreanu", lifespan=lifespan)
+app.mount("/assets", StaticFiles(directory=Path(__file__).with_name("assets")), name="assets")
 
 
 class Session:
